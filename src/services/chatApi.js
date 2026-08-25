@@ -1,42 +1,52 @@
 const API_BASE_URL = "http://localhost:8080/api";
 
+/**
+ * Get all conversations
+ */
 export async function getConversations() {
-  const response = await fetch(`${API_BASE_URL}/conversations`);
+    const response = await fetch(`${API_BASE_URL}/conversations`);
 
-  if (!response.ok) {
-    throw new Error("Failed to load conversations");
-  }
+    if (!response.ok) {
+        throw new Error("Failed to load conversations");
+    }
 
-  return response.json();
+    return response.json();
 }
 
-export async function getMessages(conversationId) {
-  const response = await fetch(
-    `${API_BASE_URL}/conversations/${conversationId}/messages`
-  );
+/**
+ * Get messages for a conversation
+ */
+export async function getConversationMessages(conversationId) {
+    const response = await fetch(
+        `${API_BASE_URL}/conversations/${conversationId}/messages`
+    );
 
-  if (!response.ok) {
-    throw new Error("Failed to load messages");
-  }
+    if (!response.ok) {
+        throw new Error("Failed to load conversation messages");
+    }
 
-  return response.json();
+    return response.json();
 }
 
+/**
+ * Send a message to the chatbot
+ */
 export async function sendMessage(message, conversationId = null) {
-  const response = await fetch(`${API_BASE_URL}/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message,
-      conversationId,
-    }),
-  });
+    const response = await fetch(`${API_BASE_URL}/chat`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            message,
+            conversationId,
+        }),
+    });
 
-  if (!response.ok) {
-    throw new Error("Failed to send message");
-  }
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to send message");
+    }
 
-  return response.json();
+    return response.json();
 }
