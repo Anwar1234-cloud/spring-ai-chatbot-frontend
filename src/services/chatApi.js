@@ -50,3 +50,19 @@ export async function sendMessage(message, conversationId = null) {
 
     return response.json();
 }
+
+/**
+ * Delete a conversation
+ */
+export async function deleteConversation(conversationId) {
+    const response = await fetch(
+        `${API_BASE_URL}/conversations/${conversationId}`,
+        {
+            method: "DELETE",
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error("Failed to delete conversation");
+    }
+}

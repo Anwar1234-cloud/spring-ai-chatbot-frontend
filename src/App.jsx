@@ -4,6 +4,7 @@ import {
     getConversations,
     getConversationMessages,
     sendMessage,
+    deleteConversation,
 } from "./services/chatApi";
 
 import "./App.css";
@@ -21,28 +22,53 @@ function App() {
     /*
      * Load conversations when application starts
      */
-    useEffect(() => {
-        loadConversations();
-    }, []);
+useEffect(() => {
+    initializeChat();
+}, []);
 
-    /*
-     * Load conversation list only.
-     *
-     * IMPORTANT:
-     * This function does NOT automatically select a conversation.
-     */
-    async function loadConversations() {
-        try {
-            setError("");
+async function initializeChat() {
+    try {
+        setError("");
 
-            const data = await getConversations();
+        const data = await getConversations();
 
-            setConversations(data);
-        } catch (err) {
-            console.error(err);
-            setError("Unable to load conversations.");
+        const sorted = [...data].sort(
+            (a, b) =>
+                new Date(b.updatedAt) -
+                new Date(a.updatedAt)
+        );
+
+        setConversations(sorted);
+
+        if (sorted.length > 0) {
+            await selectConversation(sorted[0].id);
         }
+    } catch (err) {
+        console.error(err);
+        setError("Unable to load conversations.");
     }
+}
+
+   
+async function loadConversations() {
+    try {
+        setError("");
+
+        const data = await getConversations();
+
+        const sorted = [...data].sort(
+            (a, b) =>
+                new Date(b.updatedAt) -
+                new Date(a.updatedAt)
+        );
+
+        setConversations(sorted);
+
+    } catch (err) {
+        console.error(err);
+        setError("Unable to load conversations.");
+    }
+}
 
     /*
      * Select an existing conversation
@@ -81,6 +107,48 @@ function App() {
         setInput("");
         setError("");
     }
+    async function handleDeleteConversation(
+    conversationId
+) {
+    const confirmed = window.confirm(
+        "Are you sure you want to delete this conversation?"
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        setError("");
+
+        await deleteConversation(conversationId);
+
+        // Remove from sidebar immediately
+        setConversations((previous) =>
+            previous.filter(
+                (conversation) =>
+                    conversation.id !== conversationId
+            )
+        );
+
+        // If deleted conversation was selected
+        if (
+            selectedConversationId ===
+            conversationId
+        ) {
+            setSelectedConversationId(null);
+            setMessages([]);
+            setInput("");
+        }
+
+    } catch (err) {
+        console.error(err);
+
+        setError(
+            "Unable to delete conversation."
+        );
+    }
+}
 
     /*
      * Send message
@@ -228,73 +296,94 @@ function App() {
     return (
         <div className="app">
 
-            {/* ================= SIDEBAR ================= */}
+{/* ================= SIDEBAR ================= */}
 
-            <aside className="sidebar">
+<aside className="sidebar">
 
-                <button
-                    className="new-chat-button"
-                    onClick={handleNewChat}
-                >
-                    <span>+</span>
-                    New Chat
-                </button>
+    <button
+        className="new-chat-button"
+        onClick={handleNewChat}
+    >
+        <span>+</span>
+        New Chat
+    </button>
 
-                <div className="conversation-title">
-                    CONVERSATIONS
-                </div>
+    <div className="conversation-title">
+        CONVERSATIONS
+    </div>
 
-                <div className="conversation-list">
+    <div className="conversation-list">
 
-                    {conversations.length === 0 && (
-                        <div className="empty-conversations">
-                            No conversations yet
-                        </div>
-                    )}
+        {conversations.length === 0 && (
+            <div className="empty-conversations">
+                No conversations yet
+            </div>
+        )}
 
-                    {sortedConversations.map(
-                        (conversation) => (
-                            <button
-                                key={conversation.id}
-                                className={`conversation-item ${
-                                    selectedConversationId ===
-                                    conversation.id
-                                        ? "active"
-                                        : ""
-                                }`}
-                                onClick={() =>
-                                    selectConversation(
-                                        conversation.id
-                                    )
-                                }
-                            >
-                               <div className="conversation-name">
-                                   {conversation.title || "New Conversation"}
-                               </div>
-
-                                <div className="conversation-date">
-                                    {formatDate(
-                                        conversation.updatedAt
-                                    )}
-                                </div>
-                            </button>
+        {sortedConversations.map(
+            (conversation) => (
+                <div
+                    key={conversation.id}
+                    className={`conversation-item ${
+                        selectedConversationId ===
+                        conversation.id
+                            ? "active"
+                            : ""
+                    }`}
+                    onClick={() =>
+                        selectConversation(
+                            conversation.id
                         )
-                    )}
-                </div>
+                    }
+                >
 
-                <div className="sidebar-footer">
+                    <div className="conversation-info">
 
-                    <div className="bot-name">
-                        🤖 AI Chatbot
+                        <div className="conversation-name">
+                            {conversation.title ||
+                                "New Conversation"}
+                        </div>
+
+                        <div className="conversation-date">
+                            {formatDate(
+                                conversation.updatedAt
+                            )}
+                        </div>
+
                     </div>
 
-                    <div className="bot-description">
-                        Spring AI + Ollama
-                    </div>
+                    <button
+                        className="delete-button"
+                        onClick={(event) => {
+                            event.stopPropagation();
+
+                            handleDeleteConversation(
+                                conversation.id
+                            );
+                        }}
+                    >
+                        🗑️
+                    </button>
 
                 </div>
+            )
+        )}
 
-            </aside>
+    </div>
+
+    <div className="sidebar-footer">
+
+        <div className="bot-name">
+            🤖 AI Chatbot
+        </div>
+
+        <div className="bot-description">
+            Spring AI + Ollama
+        </div>
+
+    </div>
+
+</aside>
 
             {/* ================= CHAT AREA ================= */}
 

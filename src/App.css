@@ -150,6 +150,36 @@ textarea {
     font-size: 13px;
 }
 
+.conversation-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.conversation-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.delete-button {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    opacity: 0;
+    padding: 6px;
+    font-size: 14px;
+}
+
+.conversation-item:hover .delete-button {
+    opacity: 1;
+}
+
+.delete-button:hover {
+    background: rgba(255, 0, 0, 0.1);
+    border-radius: 6px;
+}
+
 /* ================= CHAT AREA ================= */
 
 .chat-area {
