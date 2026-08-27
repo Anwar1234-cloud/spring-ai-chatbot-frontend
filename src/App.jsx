@@ -5,6 +5,7 @@ import {
     getConversationMessages,
     sendMessage,
     deleteConversation,
+    regenerateResponse,
 } from "./services/chatApi";
 
 import "./App.css";
@@ -272,6 +273,114 @@ async function loadConversations() {
     }
 
     /*
+ * Copy AI response
+ */
+async function handleCopyResponse(content) {
+    try {
+        await navigator.clipboard.writeText(content);
+
+        // Optional: show feedback
+        setError("");
+        alert("Response copied!");
+    } catch (err) {
+        console.error(err);
+        setError("Unable to copy response.");
+    }
+}
+
+
+/*
+ * Regenerate the last AI response
+ */
+async function handleRegenerate(messageId) {
+    if (loading) {
+        return;
+    }
+
+    /*
+     * Find the assistant message that we want to regenerate
+     */
+    const assistantIndex = messages.findIndex(
+        (message) => message.id === messageId
+    );
+
+    if (assistantIndex === -1) {
+        return;
+    }
+
+    /*
+     * The user message should be immediately before
+     * the assistant message.
+     */
+    const userMessage = messages[assistantIndex - 1];
+
+    if (
+        !userMessage ||
+        userMessage.role !== "USER"
+    ) {
+        setError("Unable to regenerate response.");
+        return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+        console.log(
+            "Regenerating message:",
+            userMessage.content
+        );
+
+        /*
+         * Send the SAME user message again
+         */
+        const data = await sendMessage(
+            userMessage.content,
+            selectedConversationId
+        );
+
+        /*
+         * Remove the old assistant response
+         * and replace it with the new response.
+         */
+        setMessages((previous) => {
+            const updated = [...previous];
+
+            updated[assistantIndex] = {
+                id: `assistant-${Date.now()}`,
+                role: "ASSISTANT",
+                content: data.response,
+                createdAt: new Date().toISOString(),
+            };
+
+            return updated;
+        });
+
+        /*
+         * Backend returns conversation ID
+         */
+        if (data.conversationId) {
+            setSelectedConversationId(
+                data.conversationId
+            );
+        }
+
+        /*
+         * Refresh sidebar
+         */
+        await loadConversations();
+
+    } catch (err) {
+        console.error(err);
+        setError(
+            "Something went wrong while regenerating response."
+        );
+    } finally {
+        setLoading(false);
+    }
+}
+
+    /*
      * Send message when Enter is pressed
      */
     function handleKeyDown(event) {
@@ -435,30 +544,69 @@ async function loadConversations() {
                             </div>
                         )}
 
-                    {messages.map((message) => (
+                  {messages.map((message) => (
 
-                        <div
-                            key={message.id}
-                            className={`message-row ${
-                                message.role === "USER"
-                                    ? "user-row"
-                                    : "assistant-row"
-                            }`}
-                        >
+    <div
+        key={message.id}
+        className={`message-row ${
+            message.role === "USER"
+                ? "user-row"
+                : "assistant-row"
+        }`}
+    >
 
-                            <div
-                                className={`message-bubble ${
-                                    message.role === "USER"
-                                        ? "user-message"
-                                        : "assistant-message"
-                                }`}
-                            >
-                                {message.content}
-                            </div>
+        <div className="message-content-wrapper">
 
-                        </div>
+            <div
+                className={`message-bubble ${
+                    message.role === "USER"
+                        ? "user-message"
+                        : "assistant-message"
+                }`}
+            >
+                {message.content}
+            </div>
 
-                    ))}
+            {/* ================= ASSISTANT ACTIONS ================= */}
+
+            {message.role === "ASSISTANT" && (
+
+                <div className="message-actions">
+
+                    <button
+                        className="message-action-button"
+                        onClick={() =>
+                            handleCopyResponse(
+                                message.content
+                            )
+                        }
+                        title="Copy response"
+                    >
+                        📋
+                    </button>
+
+                    <button
+                        className="message-action-button"
+                        onClick={() =>
+                            handleRegenerate(
+                                message.id
+                            )
+                        }
+                        title="Regenerate response"
+                        disabled={loading}
+                    >
+                        🔄
+                    </button>
+
+                </div>
+
+            )}
+
+        </div>
+
+    </div>
+
+))}
 
                     {loading && (
                         <div className="message-row assistant-row">

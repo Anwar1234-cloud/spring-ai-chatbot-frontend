@@ -66,3 +66,32 @@ export async function deleteConversation(conversationId) {
         throw new Error("Failed to delete conversation");
     }
 }
+
+/**
+ * Regenerate an assistant response
+ */
+export async function regenerateResponse(
+    conversationId,
+    messageId
+) {
+    const response = await fetch(
+        `${API_BASE_URL}/conversations/${conversationId}/messages/${messageId}/regenerate`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+        }
+    );
+
+    if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(
+            errorText ||
+            "Failed to regenerate response"
+        );
+    }
+
+    return response.json();
+}
