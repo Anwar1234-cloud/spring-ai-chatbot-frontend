@@ -6,6 +6,7 @@ import {
     sendMessage,
     deleteConversation,
     regenerateResponse,
+     saveFeedback,
 } from "./services/chatApi";
 
 import "./App.css";
@@ -14,11 +15,14 @@ function App() {
     const [conversations, setConversations] = useState([]);
     const [selectedConversationId, setSelectedConversationId] = useState(null);
     const [messages, setMessages] = useState([]);
+    const [feedback, setFeedback] = useState({});
+    const [feedbackMessage, setFeedbackMessage] = useState({});
 
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [error, setError] = useState("");
+
 
     /*
      * Load conversations when application starts
@@ -226,19 +230,17 @@ async function loadConversations() {
             );
 
             /*
-             * Display AI response
+             * Reload messages from database.
+             *
+             * This is important because the backend-generated
+             * assistant message has the real PostgreSQL ID.
              */
-            const assistantMessage = {
-                id: `assistant-${Date.now()}`,
-                role: "ASSISTANT",
-                content: data.response,
-                createdAt: new Date().toISOString(),
-            };
+            const updatedMessages =
+                await getConversationMessages(
+                    data.conversationId
+                    );
 
-            setMessages((previous) => [
-                ...previous,
-                assistantMessage,
-            ]);
+            setMessages(updatedMessages);
 
             /*
              * Refresh sidebar.
@@ -288,37 +290,53 @@ async function handleCopyResponse(content) {
     }
 }
 
+async function handleFeedback(messageId, type) {
+    try {
+        setError("");
+
+        console.log(
+            "Saving feedback:",
+            messageId,
+            type
+        );
+
+        await saveFeedback(messageId, type);
+
+        // Save selected feedback in frontend
+        setFeedback((previous) => ({
+            ...previous,
+            [messageId]: type,
+        }));
+
+        // Show confirmation to user
+        setFeedbackMessage((previous) => ({
+            ...previous,
+            [messageId]:
+                type === "LIKE"
+                    ? "Liked 👍"
+                    : "Disliked 👎",
+        }));
+
+        console.log("Feedback saved successfully");
+
+    } catch (err) {
+        console.error(err);
+
+        setError("Unable to save feedback.");
+    }
+}
+
 
 /*
  * Regenerate the last AI response
  */
 async function handleRegenerate(messageId) {
+
     if (loading) {
         return;
     }
 
-    /*
-     * Find the assistant message that we want to regenerate
-     */
-    const assistantIndex = messages.findIndex(
-        (message) => message.id === messageId
-    );
-
-    if (assistantIndex === -1) {
-        return;
-    }
-
-    /*
-     * The user message should be immediately before
-     * the assistant message.
-     */
-    const userMessage = messages[assistantIndex - 1];
-
-    if (
-        !userMessage ||
-        userMessage.role !== "USER"
-    ) {
-        setError("Unable to regenerate response.");
+    if (!selectedConversationId) {
         return;
     }
 
@@ -326,44 +344,40 @@ async function handleRegenerate(messageId) {
     setError("");
 
     try {
+
         console.log(
-            "Regenerating message:",
-            userMessage.content
+            "Regenerating assistant message:",
+            messageId
         );
 
-        /*
-         * Send the SAME user message again
-         */
-        const data = await sendMessage(
-            userMessage.content,
+        console.log(
+            "Conversation:",
             selectedConversationId
         );
 
-        /*
-         * Remove the old assistant response
-         * and replace it with the new response.
-         */
-        setMessages((previous) => {
-            const updated = [...previous];
+        const data = await regenerateResponse(
+            selectedConversationId,
+            messageId
+        );
 
-            updated[assistantIndex] = {
-                id: `assistant-${Date.now()}`,
-                role: "ASSISTANT",
-                content: data.response,
-                createdAt: new Date().toISOString(),
-            };
-
-            return updated;
-        });
+        console.log(
+            "Regenerate response:",
+            data
+        );
 
         /*
-         * Backend returns conversation ID
+         * Reload messages from PostgreSQL.
+         *
+         * This is important because the database
+         * now contains the new assistant message
+         * with its real PostgreSQL ID.
          */
-        if (data.conversationId) {
-            setSelectedConversationId(
-                data.conversationId
+        const updatedMessages =
+            await getConversationMessages(
+                selectedConversationId
             );
-        }
+
+        setMessages(updatedMessages);
 
         /*
          * Refresh sidebar
@@ -371,11 +385,15 @@ async function handleRegenerate(messageId) {
         await loadConversations();
 
     } catch (err) {
+
         console.error(err);
+
         setError(
             "Something went wrong while regenerating response."
         );
+
     } finally {
+
         setLoading(false);
     }
 }
@@ -392,6 +410,7 @@ async function handleRegenerate(messageId) {
             handleSendMessage();
         }
     }
+    
 
     /*
      * Sort conversations without mutating state
@@ -569,38 +588,62 @@ async function handleRegenerate(messageId) {
 
             {/* ================= ASSISTANT ACTIONS ================= */}
 
-            {message.role === "ASSISTANT" && (
+{message.role === "ASSISTANT" && (
+    <div className="message-actions">
 
-                <div className="message-actions">
+       <button
+    className={
+        feedback[message.id] === "LIKE"
+            ? "feedback-button selected"
+            : "feedback-button"
+    }
+    onClick={() =>
+        handleFeedback(message.id, "LIKE")
+    }
+>
+    👍
+</button>
 
-                    <button
-                        className="message-action-button"
-                        onClick={() =>
-                            handleCopyResponse(
-                                message.content
-                            )
-                        }
-                        title="Copy response"
-                    >
-                        📋
-                    </button>
+<button
+    className={
+        feedback[message.id] === "DISLIKE"
+            ? "feedback-button selected"
+            : "feedback-button"
+    }
+    onClick={() =>
+        handleFeedback(message.id, "DISLIKE")
+    }
+>
+    👎
+</button>
 
-                    <button
-                        className="message-action-button"
-                        onClick={() =>
-                            handleRegenerate(
-                                message.id
-                            )
-                        }
-                        title="Regenerate response"
-                        disabled={loading}
-                    >
-                        🔄
-                    </button>
+        <button
+            className="message-action-button"
+            onClick={() =>
+                handleCopyResponse(
+                    message.content
+                )
+            }
+            title="Copy response"
+        >
+            📋
+        </button>
 
-                </div>
+        <button
+            className="message-action-button"
+            onClick={() =>
+                handleRegenerate(
+                    message.id
+                )
+            }
+            disabled={loading}
+            title="Regenerate response"
+        >
+            🔄
+        </button>
 
-            )}
+    </div>
+)}
 
         </div>
 

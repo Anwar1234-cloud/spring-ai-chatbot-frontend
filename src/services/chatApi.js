@@ -75,23 +75,45 @@ export async function regenerateResponse(
     messageId
 ) {
     const response = await fetch(
-        `${API_BASE_URL}/conversations/${conversationId}/messages/${messageId}/regenerate`,
+        `http://localhost:8080/api/chat/regenerate?conversationId=${conversationId}&messageId=${messageId}`,
+        {
+            method: "POST",
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            "Failed to regenerate response"
+        );
+    }
+
+    return response.json();
+}
+
+export async function saveFeedback(messageId, type) {
+    const response = await fetch(
+        "http://localhost:8080/api/chat/feedback",
         {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
             },
+            body: JSON.stringify({
+                messageId,
+                type,
+            }),
         }
     );
 
     if (!response.ok) {
         const errorText = await response.text();
 
-        throw new Error(
-            errorText ||
-            "Failed to regenerate response"
+        console.error(
+            "Feedback API error:",
+            response.status,
+            errorText
         );
-    }
 
-    return response.json();
+        throw new Error("Failed to save feedback");
+    }
 }

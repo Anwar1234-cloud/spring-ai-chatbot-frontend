@@ -513,3 +513,31 @@ textarea {
     cursor: not-allowed;
     opacity: 0.3;
 }
+
+.message-action-button.selected {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.message-action-button {
+    transition: all 0.2s ease;
+}
+
+.feedback-button {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    transition: 0.2s;
+}
+
+.feedback-button:hover {
+    background: #f1f1f1;
+}
+
+.feedback-button.selected {
+    background: #e2e8f0;
+    transform: scale(1.1);
+}
