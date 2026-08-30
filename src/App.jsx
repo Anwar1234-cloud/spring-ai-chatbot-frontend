@@ -6,7 +6,8 @@ import {
     sendMessage,
     deleteConversation,
     regenerateResponse,
-     saveFeedback,
+    saveFeedback,
+    sendPdf,
 } from "./services/chatApi";
 
 import "./App.css";
@@ -17,6 +18,8 @@ function App() {
     const [messages, setMessages] = useState([]);
     const [feedback, setFeedback] = useState({});
     const [feedbackMessage, setFeedbackMessage] = useState({});
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [filePreview, setFilePreview] = useState(null); 
 
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
@@ -100,7 +103,62 @@ async function loadConversations() {
             setLoadingMessages(false);
         }
     }
+    function handleFileSelect(event) {
+    const file = event.target.files[0];
 
+    if (!file) {
+        return;
+    }
+
+    // Allow only PDF and images
+    const allowedTypes = [
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+        setError("Only PDF and image files are allowed.");
+        event.target.value = "";
+        return;
+    }
+
+    // Maximum 10 MB
+    if (file.size > 10 * 1024 * 1024) {
+        setError("File size must be less than 10 MB.");
+        event.target.value = "";
+        return;
+    }
+
+    setError("");
+    setSelectedFile(file);
+
+    // Create preview for images
+    if (file.type.startsWith("image/")) {
+        const previewUrl = URL.createObjectURL(file);
+        setFilePreview(previewUrl);
+    } else {
+        setFilePreview(null);
+    }
+}
+
+function removeSelectedFile() {
+    if (filePreview) {
+        URL.revokeObjectURL(filePreview);
+    }
+
+    setSelectedFile(null);
+    setFilePreview(null);
+
+    const fileInput =
+        document.getElementById("file-input");
+
+    if (fileInput) {
+        fileInput.value = "";
+    }
+}
     /*
      * Create a completely new chat
      */
@@ -111,6 +169,8 @@ async function loadConversations() {
         setMessages([]);
         setInput("");
         setError("");
+
+        removeSelectedFile();
     }
     async function handleDeleteConversation(
     conversationId
@@ -158,121 +218,157 @@ async function loadConversations() {
     /*
      * Send message
      */
-    async function handleSendMessage() {
-        const message = input.trim();
+async function handleSendMessage() {
+    const message = input.trim();
 
-        if (!message || loading) {
-            return;
-        }
+    if ((!message && !selectedFile) || loading) {
+        return;
+    }
 
-        setError("");
-        setLoading(true);
+    setError("");
+    setLoading(true);
+
+    const currentConversationId =
+        selectedConversationId;
+
+    const currentFile = selectedFile;
+
+    console.log("Sending message:", message);
+    console.log(
+        "Conversation ID:",
+        currentConversationId
+    );
+
+    if (currentFile) {
+        console.log(
+            "File:",
+            currentFile.name,
+            currentFile.type,
+            currentFile.size
+        );
+    }
+
+    /*
+     * Show user's message immediately
+     */
+    const temporaryUserMessage = {
+        id: `temp-${Date.now()}`,
+        role: "USER",
+        content: currentFile
+            ? `${currentFile.name}${message ? `\n${message}` : ""}`
+            : message,
+        createdAt: new Date().toISOString(),
+    };
+
+    setMessages((previous) => [
+        ...previous,
+        temporaryUserMessage,
+    ]);
+
+    setInput("");
+
+    try {
+        let data;
 
         /*
-         * Save the conversation ID that is being used
-         * for THIS request.
+         * ============================
+         * PDF / FILE MESSAGE
+         * ============================
          */
-        const currentConversationId =
-            selectedConversationId;
+        if (currentFile) {
 
-        console.log("Sending message:", message);
+            data = await sendPdf(
+                currentFile,
+                message,
+                currentConversationId
+            );
+
+        }
+
+        /*
+         * ============================
+         * NORMAL TEXT MESSAGE
+         * ============================
+         */
+        else {
+
+            data = await sendMessage(
+                message,
+                currentConversationId,
+                selectedFile
+            );
+
+        }
+
         console.log(
-            "Conversation ID being sent:",
-            currentConversationId
+            "Backend response:",
+            data
+        );
+
+        console.log(
+            "Conversation ID returned:",
+            data.conversationId
         );
 
         /*
-         * Immediately display user's message
+         * Save conversation ID
          */
-        const temporaryUserMessage = {
-            id: `temp-${Date.now()}`,
-            role: "USER",
-            content: message,
+        setSelectedConversationId(
+            data.conversationId
+        );
+
+        /*
+         * Display AI response
+         */
+        const assistantMessage = {
+            id: `assistant-${Date.now()}`,
+            role: "ASSISTANT",
+            content: data.response,
             createdAt: new Date().toISOString(),
         };
 
         setMessages((previous) => [
             ...previous,
-            temporaryUserMessage,
+            assistantMessage,
         ]);
 
-        setInput("");
+        /*
+         * Clear attachment after successful send
+         */
+        removeSelectedFile();
 
-        try {
-            /*
-             * Send message + CURRENT conversation ID
-             */
-            const data = await sendMessage(
-                message,
-                currentConversationId
-            );
+        /*
+         * Refresh sidebar
+         */
+        await loadConversations();
 
-            console.log("Backend response:", data);
+    } catch (err) {
 
-            console.log(
-                "Conversation ID returned by backend:",
-                data.conversationId
-            );
+        console.error(
+            "Send message error:",
+            err
+        );
 
-            /*
-             * VERY IMPORTANT
-             *
-             * Always save the conversation ID returned
-             * by the backend.
-             *
-             * This works for both:
-             *
-             * 1. New conversation
-             * 2. Existing conversation
-             */
-            setSelectedConversationId(
-                data.conversationId
-            );
+        setError(
+            "Something went wrong while sending the message."
+        );
 
-            /*
-             * Reload messages from database.
-             *
-             * This is important because the backend-generated
-             * assistant message has the real PostgreSQL ID.
-             */
-            const updatedMessages =
-                await getConversationMessages(
-                    data.conversationId
-                    );
+        /*
+         * Remove temporary user message
+         */
+        setMessages((previous) =>
+            previous.filter(
+                (msg) =>
+                    msg.id !==
+                    temporaryUserMessage.id
+            )
+        );
 
-            setMessages(updatedMessages);
+    } finally {
 
-            /*
-             * Refresh sidebar.
-             *
-             * IMPORTANT:
-             * loadConversations() only refreshes the list.
-             * It does NOT change the selected conversation.
-             */
-            await loadConversations();
-
-        } catch (err) {
-            console.error(err);
-
-            setError(
-                "Something went wrong while sending the message."
-            );
-
-            /*
-             * Remove temporary user message
-             * if API failed
-             */
-            setMessages((previous) =>
-                previous.filter(
-                    (msg) =>
-                        msg.id !==
-                        temporaryUserMessage.id
-                )
-            );
-        } finally {
-            setLoading(false);
-        }
+        setLoading(false);
     }
+}
 
     /*
  * Copy AI response
@@ -673,42 +769,105 @@ async function handleRegenerate(messageId) {
 
                 {/* INPUT */}
 
-                <div className="input-area">
+{/* FILE PREVIEW */}
+{selectedFile && (
+    <div className="attachment-preview">
 
-                    <div className="input-wrapper">
+        {filePreview ? (
+            <div className="image-preview-wrapper">
+                <img
+                    src={filePreview}
+                    alt={selectedFile.name}
+                    className="image-preview"
+                />
+            </div>
+        ) : (
+            <div className="pdf-preview">
+                <span className="pdf-icon">📄</span>
 
-                        <textarea
-                            value={input}
-                            onChange={(event) =>
-                                setInput(
-                                    event.target.value
-                                )
-                            }
-                            onKeyDown={handleKeyDown}
-                            placeholder="Message AI..."
-                            rows={1}
-                            disabled={loading}
-                        />
-
-                        <button
-                            className="send-button"
-                            onClick={handleSendMessage}
-                            disabled={
-                                loading ||
-                                !input.trim()
-                            }
-                        >
-                            ➤
-                        </button>
-
+                <div className="file-info">
+                    <div className="file-name">
+                        {selectedFile.name}
                     </div>
 
-                    <div className="input-footer">
-                        AI can make mistakes. Check
-                        important information.
+                    <div className="file-size">
+                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                     </div>
-
                 </div>
+            </div>
+        )}
+
+        <button
+            type="button"
+            className="remove-file-button"
+            onClick={removeSelectedFile}
+            disabled={loading}
+        >
+            ✕
+        </button>
+
+    </div>
+)}
+
+{/* INPUT */}
+<div className="input-area">
+
+    <div className="input-wrapper">
+
+        {/* Hidden file input */}
+        <input
+            id="file-input"
+            type="file"
+            accept="image/*,.pdf"
+            onChange={handleFileSelect}
+            style={{ display: "none" }}
+        />
+
+        {/* Attach button */}
+        <button
+            type="button"
+            className="attach-button"
+            onClick={() =>
+                document
+                    .getElementById("file-input")
+                    .click()
+            }
+            disabled={loading}
+            title="Attach file"
+        >
+            📎
+        </button>
+
+        <textarea
+            value={input}
+            onChange={(event) =>
+                setInput(event.target.value)
+            }
+            onKeyDown={handleKeyDown}
+            placeholder="Message AI..."
+            rows={1}
+            disabled={loading}
+        />
+
+        <button
+            className="send-button"
+            onClick={handleSendMessage}
+            disabled={
+                loading ||
+                (!input.trim() && !selectedFile)
+            }
+        >
+            ➤
+        </button>
+
+    </div>
+
+    <div className="input-footer">
+        AI can make mistakes. Check
+        important information.
+    </div>
+
+</div>
 
             </main>
 

@@ -31,21 +31,46 @@ export async function getConversationMessages(conversationId) {
 /**
  * Send a message to the chatbot
  */
-export async function sendMessage(message, conversationId = null) {
-    const response = await fetch(`${API_BASE_URL}/chat`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            message,
-            conversationId,
-        }),
-    });
+export async function sendMessage(
+    message,
+    conversationId = null,
+    file = null
+) {
+    const formData = new FormData();
+
+    formData.append("message", message);
+
+    if (conversationId) {
+        formData.append(
+            "conversationId",
+            conversationId
+        );
+    }
+
+    if (file) {
+        formData.append("file", file);
+    }
+
+    const response = await fetch(
+        `${API_BASE_URL}/chat`,
+        {
+            method: "POST",
+            body: formData,
+        }
+    );
 
     if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(errorText || "Failed to send message");
+
+        console.error(
+            "Chat API error:",
+            response.status,
+            errorText
+        );
+
+        throw new Error(
+            errorText || "Failed to send message"
+        );
     }
 
     return response.json();
@@ -116,4 +141,45 @@ export async function saveFeedback(messageId, type) {
 
         throw new Error("Failed to save feedback");
     }
+}
+export async function sendPdf(
+    file,
+    message = "",
+    conversationId = null
+) {
+    const formData = new FormData();
+
+    formData.append("file", file);
+    formData.append("message", message);
+
+    if (conversationId) {
+        formData.append(
+            "conversationId",
+            conversationId
+        );
+    }
+
+    const response = await fetch(
+        `${API_BASE_URL}/chat`,
+        {
+            method: "POST",
+            body: formData,
+        }
+    );
+
+    if (!response.ok) {
+        const errorText = await response.text();
+
+        console.error(
+            "PDF API error:",
+            response.status,
+            errorText
+        );
+
+        throw new Error(
+            errorText || "Failed to process PDF"
+        );
+    }
+
+    return response.json();
 }
