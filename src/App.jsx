@@ -7,7 +7,8 @@ import {
     deleteConversation,
     regenerateResponse,
     saveFeedback,
-    sendPdf,
+    streamFileMessage,
+    streamMessage,
 } from "./services/chatApi";
 
 import "./App.css";
@@ -20,6 +21,7 @@ function App() {
     const [feedbackMessage, setFeedbackMessage] = useState({});
     const [selectedFile, setSelectedFile] = useState(null);
     const [filePreview, setFilePreview] = useState(null); 
+    const [abortController, setAbortController] = useState(null);
 
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
@@ -218,10 +220,19 @@ function removeSelectedFile() {
     /*
      * Send message
      */
+
 async function handleSendMessage() {
+
     const message = input.trim();
 
-    if ((!message && !selectedFile) || loading) {
+    /*
+     * Do not send empty request unless
+     * a file has been selected.
+     */
+    if (
+        (!message && !selectedFile) ||
+        loading
+    ) {
         return;
     }
 
@@ -231,33 +242,28 @@ async function handleSendMessage() {
     const currentConversationId =
         selectedConversationId;
 
-    const currentFile = selectedFile;
+    const controller =
+        new AbortController();
 
-    console.log("Sending message:", message);
-    console.log(
-        "Conversation ID:",
-        currentConversationId
-    );
-
-    if (currentFile) {
-        console.log(
-            "File:",
-            currentFile.name,
-            currentFile.type,
-            currentFile.size
-        );
-    }
+    setAbortController(controller);
 
     /*
-     * Show user's message immediately
+     * =========================================================
+     * TEMPORARY USER MESSAGE
+     * =========================================================
      */
+
     const temporaryUserMessage = {
-        id: `temp-${Date.now()}`,
+        id: `temp-user-${Date.now()}`,
+
         role: "USER",
-        content: currentFile
-            ? `${currentFile.name}${message ? `\n${message}` : ""}`
-            : message,
-        createdAt: new Date().toISOString(),
+
+        content:
+            message ||
+            `Uploaded: ${selectedFile?.name}`,
+
+        createdAt:
+            new Date().toISOString(),
     };
 
     setMessages((previous) => [
@@ -265,110 +271,320 @@ async function handleSendMessage() {
         temporaryUserMessage,
     ]);
 
+    /*
+     * Clear input immediately.
+     */
     setInput("");
 
     try {
-        let data;
 
         /*
-         * ============================
-         * PDF / FILE MESSAGE
-         * ============================
+         * =====================================================
+         * CREATE TEMPORARY ASSISTANT MESSAGE
+         * =====================================================
          */
-        if (currentFile) {
 
-            data = await sendPdf(
-                currentFile,
-                message,
-                currentConversationId
-            );
-
-        }
-
-        /*
-         * ============================
-         * NORMAL TEXT MESSAGE
-         * ============================
-         */
-        else {
-
-            data = await sendMessage(
-                message,
-                currentConversationId,
-                selectedFile
-            );
-
-        }
-
-        console.log(
-            "Backend response:",
-            data
-        );
-
-        console.log(
-            "Conversation ID returned:",
-            data.conversationId
-        );
-
-        /*
-         * Save conversation ID
-         */
-        setSelectedConversationId(
-            data.conversationId
-        );
-
-        /*
-         * Display AI response
-         */
-        const assistantMessage = {
-            id: `assistant-${Date.now()}`,
-            role: "ASSISTANT",
-            content: data.response,
-            createdAt: new Date().toISOString(),
-        };
+        const assistantId =
+            `temp-assistant-${Date.now()}`;
 
         setMessages((previous) => [
             ...previous,
-            assistantMessage,
+            {
+                id: assistantId,
+
+                role: "ASSISTANT",
+
+                content: "",
+
+                createdAt:
+                    new Date().toISOString(),
+
+                streaming: true,
+            },
         ]);
 
-        /*
-         * Clear attachment after successful send
-         */
-        removeSelectedFile();
 
         /*
-         * Refresh sidebar
+         * =====================================================
+         * FILE STREAM
+         * =====================================================
          */
-        await loadConversations();
+
+        if (selectedFile) {
+
+            console.log(
+                "Streaming file:",
+                selectedFile.name
+            );
+
+            await streamFileMessage(
+                selectedFile,
+                message,
+                currentConversationId,
+                controller.signal,
+
+                (chunk) => {
+
+                    setMessages(
+                        (previous) =>
+                            previous.map(
+                                (msg) =>
+                                    msg.id ===
+                                    assistantId
+                                        ? {
+                                            ...msg,
+
+                                            content:
+                                                msg.content +
+                                                chunk,
+                                        }
+                                        : msg
+                            )
+                    );
+                }
+            );
+
+        }
+
+        /*
+         * =====================================================
+         * NORMAL TEXT STREAM
+         * =====================================================
+         */
+
+        else {
+
+            console.log(
+                "Streaming message:",
+                message
+            );
+
+            await streamMessage(
+                message,
+                currentConversationId,
+                controller.signal,
+
+                (chunk) => {
+
+                    setMessages(
+                        (previous) =>
+                            previous.map(
+                                (msg) =>
+                                    msg.id ===
+                                    assistantId
+                                        ? {
+                                            ...msg,
+
+                                            content:
+                                                msg.content +
+                                                chunk,
+                                        }
+                                        : msg
+                            )
+                    );
+                }
+            );
+        }
+
+
+        /*
+         * =====================================================
+         * STREAM COMPLETED
+         * =====================================================
+         */
+
+        setMessages(
+            (previous) =>
+                previous.map(
+                    (msg) =>
+                        msg.id ===
+                        assistantId
+                            ? {
+                                ...msg,
+                                streaming: false,
+                            }
+                            : msg
+                )
+        );
+
+
+        /*
+         * Clear attachment.
+         */
+        if (selectedFile) {
+
+            if (filePreview) {
+                URL.revokeObjectURL(
+                    filePreview
+                );
+            }
+
+            setSelectedFile(null);
+            setFilePreview(null);
+
+            const fileInput =
+                document.getElementById(
+                    "file-input"
+                );
+
+            if (fileInput) {
+                fileInput.value = "";
+            }
+        }
+
+
+        /*
+         * =====================================================
+         * IMPORTANT:
+         *
+         * Backend creates conversation when
+         * conversationId == null.
+         *
+         * Current backend does NOT send the new
+         * conversationId through the stream.
+         *
+         * Therefore reload conversations and
+         * select the newest one.
+         * =====================================================
+         */
+
+        const data =
+            await getConversations();
+
+        const sorted =
+            [...data].sort(
+                (a, b) =>
+                    new Date(
+                        b.updatedAt
+                    ) -
+                    new Date(
+                        a.updatedAt
+                    )
+            );
+
+        setConversations(sorted);
+
+
+        /*
+         * If this was a NEW conversation,
+         * select the newest conversation.
+         */
+        if (!currentConversationId) {
+
+            if (sorted.length > 0) {
+
+                const newest =
+                    sorted[0];
+
+                setSelectedConversationId(
+                    newest.id
+                );
+
+                /*
+                 * Reload messages so temporary
+                 * frontend IDs are replaced with
+                 * PostgreSQL IDs.
+                 */
+                const savedMessages =
+                    await getConversationMessages(
+                        newest.id
+                    );
+
+                setMessages(
+                    savedMessages
+                );
+            }
+
+        } else {
+
+            /*
+             * Existing conversation.
+             *
+             * Reload messages to get real
+             * PostgreSQL message IDs.
+             */
+            const savedMessages =
+                await getConversationMessages(
+                    currentConversationId
+                );
+
+            setMessages(
+                savedMessages
+            );
+        }
 
     } catch (err) {
 
-        console.error(
-            "Send message error:",
-            err
-        );
-
-        setError(
-            "Something went wrong while sending the message."
-        );
-
         /*
-         * Remove temporary user message
+         * =====================================================
+         * USER PRESSED STOP
+         * =====================================================
          */
-        setMessages((previous) =>
-            previous.filter(
-                (msg) =>
-                    msg.id !==
-                    temporaryUserMessage.id
-            )
-        );
+
+        if (
+            err.name ===
+            "AbortError"
+        ) {
+
+            console.log(
+                "Generation stopped."
+            );
+
+            /*
+             * Keep the text generated so far.
+             */
+
+        } else {
+
+            console.error(err);
+
+            setError(
+                "Something went wrong while sending the message."
+            );
+
+            /*
+             * Remove temporary messages
+             * when request completely fails.
+             */
+            setMessages(
+                (previous) =>
+                    previous.filter(
+                        (msg) =>
+                            msg.id !==
+                            temporaryUserMessage.id &&
+                            msg.id !==
+                            assistantId
+                    )
+            );
+        }
 
     } finally {
 
         setLoading(false);
+
+        setAbortController(null);
     }
 }
+
+
+
+
+function handleStopGenerating() {
+
+    if (!abortController) {
+        return;
+    }
+
+    console.log(
+        "Stopping AI generation..."
+    );
+
+    abortController.abort();
+
+    setAbortController(null);
+}
+
+
 
     /*
  * Copy AI response
@@ -849,16 +1065,28 @@ async function handleRegenerate(messageId) {
             disabled={loading}
         />
 
-        <button
-            className="send-button"
-            onClick={handleSendMessage}
-            disabled={
-                loading ||
-                (!input.trim() && !selectedFile)
-            }
-        >
-            ➤
-        </button>
+{loading ? (
+    <button
+        type="button"
+        className="stop-button"
+        onClick={handleStopGenerating}
+        title="Stop generating"
+    >
+        ■
+    </button>
+) : (
+    <button
+        type="button"
+        className="send-button"
+        onClick={handleSendMessage}
+        disabled={
+            !input.trim() &&
+            !selectedFile
+        }
+    >
+        ➤
+    </button>
+)}
 
     </div>
 

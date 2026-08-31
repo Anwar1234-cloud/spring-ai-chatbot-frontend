@@ -639,3 +639,30 @@ textarea {
     cursor: not-allowed;
     opacity: 0.4;
 }
+
+.stop-button {
+    width: 42px;
+    height: 42px;
+    border: none;
+    border-radius: 50%;
+    background: #222;
+    color: white;
+    cursor: pointer;
+    font-size: 18px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    transition: transform 0.2s ease,
+                opacity 0.2s ease;
+}
+
+.stop-button:hover {
+    transform: scale(1.05);
+    opacity: 0.85;
+}
+
+.stop-button:active {
+    transform: scale(0.95);
+}
