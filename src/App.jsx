@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
     getConversations,
@@ -22,6 +22,10 @@ function App() {
     const [selectedFile, setSelectedFile] = useState(null);
     const [filePreview, setFilePreview] = useState(null); 
     const [abortController, setAbortController] = useState(null);
+    const [isListening, setIsListening] = useState(false);
+    const [voiceSupported, setVoiceSupported] = useState(true);
+
+    const recognitionRef = useRef(null);
 
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
@@ -56,6 +60,197 @@ async function initializeChat() {
     } catch (err) {
         console.error(err);
         setError("Unable to load conversations.");
+    }
+}
+
+useEffect(() => {
+    const SpeechRecognition =
+        window.SpeechRecognition ||
+        window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+        setVoiceSupported(false);
+        return;
+    }
+
+    const recognition = new SpeechRecognition();
+
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-IN";
+
+    recognition.shouldRestart = true;
+    recognition.isManuallyStopped = false;
+
+    recognition.onstart = () => {
+        console.log("🎤 Voice recognition started");
+        setIsListening(true);
+    };
+
+    recognition.onresult = (event) => {
+        let transcript = "";
+
+        for (
+            let i = event.resultIndex;
+            i < event.results.length;
+            i++
+        ) {
+            transcript +=
+                event.results[i][0].transcript;
+        }
+
+        console.log(
+            "🎤 Recognized:",
+            transcript
+        );
+
+        if (transcript.trim()) {
+            setInput((previous) => {
+                // Remove current interim text marker if needed
+                return transcript;
+            });
+        }
+    };
+
+    recognition.onerror = (event) => {
+        console.log(
+            "🎤 Speech recognition error:",
+            event.error
+        );
+
+        if (event.error === "no-speech") {
+            console.log(
+                "🎤 No speech detected"
+            );
+
+            // Don't turn listening off
+            return;
+        }
+
+        if (
+            event.error === "not-allowed" ||
+            event.error === "service-not-allowed"
+        ) {
+            recognition.shouldRestart = false;
+            setIsListening(false);
+
+            setError(
+                "Microphone permission denied. Please allow microphone access."
+            );
+
+            return;
+        }
+
+        if (event.error === "audio-capture") {
+            recognition.shouldRestart = false;
+            setIsListening(false);
+
+            setError(
+                "Microphone could not be detected."
+            );
+
+            return;
+        }
+
+        if (event.error === "aborted") {
+            console.log(
+                "🎤 Recognition aborted"
+            );
+
+            return;
+        }
+    };
+
+    recognition.onend = () => {
+        console.log(
+            "🎤 Voice recognition stopped"
+        );
+
+        if (
+            recognition.shouldRestart &&
+            !recognition.isManuallyStopped
+        ) {
+            console.log(
+                "🔄 Restarting voice recognition..."
+            );
+
+            setTimeout(() => {
+                try {
+                    recognition.start();
+
+                    console.log(
+                        "🎤 Voice recognition restarted"
+                    );
+                } catch (error) {
+                    console.log(
+                        "Recognition already running"
+                    );
+                }
+            }, 300);
+        } else {
+            setIsListening(false);
+        }
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
+        recognition.shouldRestart = false;
+        recognition.isManuallyStopped = true;
+
+        try {
+            recognition.stop();
+        } catch (error) {
+            console.log(error);
+        }
+    };
+}, []);
+
+function handleVoiceInput() {
+    const recognition = recognitionRef.current;
+
+    if (!recognition) {
+        setError(
+            "Voice recognition is not supported in this browser."
+        );
+        return;
+    }
+
+    // STOP
+    if (isListening) {
+        console.log(
+            "🛑 User stopped voice recognition"
+        );
+
+        recognition.shouldRestart = false;
+        recognition.isManuallyStopped = true;
+
+        try {
+            recognition.stop();
+        } catch (error) {
+            console.log(error);
+        }
+
+        setIsListening(false);
+
+        return;
+    }
+
+    // START
+    console.log(
+        "🎤 Starting microphone..."
+    );
+
+    recognition.shouldRestart = true;
+    recognition.isManuallyStopped = false;
+
+    try {
+        recognition.start();
+    } catch (error) {
+        console.log(
+            "Recognition already running:",
+            error
+        );
     }
 }
 
@@ -1053,17 +1248,36 @@ async function handleRegenerate(messageId) {
         >
             📎
         </button>
+         <button
+             type="button"
+             className={`voice-button ${
+                 isListening ? "listening" : ""
+             }`}
+             onClick={handleVoiceInput}
+             disabled={loading}
+             title={
+                 isListening
+                     ? "Stop listening"
+                     : "Voice input"
+              }
+         >
+              {isListening ? "🔴" : "🎤"}
+         </button>
 
-        <textarea
-            value={input}
-            onChange={(event) =>
-                setInput(event.target.value)
-            }
-            onKeyDown={handleKeyDown}
-            placeholder="Message AI..."
-            rows={1}
-            disabled={loading}
-        />
+    <textarea
+        value={input}
+        onChange={(event) =>
+            setInput(event.target.value)
+        }
+        onKeyDown={handleKeyDown}
+        placeholder={
+            isListening
+                ? "Listening..."
+                : "Message AI..."
+        }
+        rows={1}
+        disabled={loading}
+    />
 
 {loading ? (
     <button
