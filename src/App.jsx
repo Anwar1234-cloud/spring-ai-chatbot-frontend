@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { FcGoogle } from "react-icons/fc";
 
 import {
     getConversations,
@@ -26,6 +27,8 @@ function App() {
     const [voiceSupported, setVoiceSupported] = useState(true);
 
     const recognitionRef = useRef(null);
+    const [user, setUser] = useState(null);
+    const [authLoading, setAuthLoading] = useState(true);
 
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
@@ -37,8 +40,20 @@ function App() {
      * Load conversations when application starts
      */
 useEffect(() => {
+    if (authLoading) {
+        return;
+    }
+
+    if (!user) {
+        setConversations([]);
+        setSelectedConversationId(null);
+        setMessages([]);
+        return;
+    }
+
     initializeChat();
-}, []);
+}, [user, authLoading]);
+
 
 async function initializeChat() {
     try {
@@ -54,9 +69,11 @@ async function initializeChat() {
 
         setConversations(sorted);
 
-        if (sorted.length > 0) {
-            await selectConversation(sorted[0].id);
-        }
+        // IMPORTANT:
+        // Do NOT automatically open the previous conversation.
+        setSelectedConversationId(null);
+        setMessages([]);
+
     } catch (err) {
         console.error(err);
         setError("Unable to load conversations.");
@@ -205,6 +222,88 @@ useEffect(() => {
         }
     };
 }, []);
+
+
+useEffect(() => {
+
+    async function checkAuthentication() {
+
+        try {
+
+            const response = await fetch(
+                "http://localhost:8080/api/auth/me",
+                {
+                    method: "GET",
+                    credentials: "include",
+                }
+            );
+
+            if (!response.ok) {
+                setUser(null);
+                return;
+            }
+
+            const data = await response.json();
+
+            console.log(
+                "Authenticated user:",
+                data
+            );
+
+            if (data.authenticated) {
+                setUser(data);
+            } else {
+                setUser(null);
+            }
+
+        } catch (error) {
+
+            console.error(
+                "Authentication check failed:",
+                error
+            );
+
+            setUser(null);
+
+        } finally {
+
+            setAuthLoading(false);
+        }
+    }
+
+    checkAuthentication();
+
+}, []);
+
+async function handleLogout() {
+    try {
+        await fetch(
+            "http://localhost:8080/api/auth/logout",
+            {
+                method: "POST",
+                credentials: "include",
+            }
+        );
+
+        // Clear authentication state
+        setUser(null);
+
+        // Clear current chat
+        setSelectedConversationId(null);
+        setMessages([]);
+
+        // Clear conversation list
+        setConversations([]);
+
+        // Clear errors/loading state if needed
+        setError("");
+
+        // Go to home/login page
+        window.location.href = "/";
+    } catch (error) {
+        console.error("Logout failed:", error);
+    }
+}
 
 function handleVoiceInput() {
     const recognition = recognitionRef.current;
@@ -412,6 +511,12 @@ function removeSelectedFile() {
     }
 }
 
+function handleGoogleLogin() {
+
+    window.location.href =
+        "http://localhost:8080/oauth2/authorization/google";
+}
+
     /*
      * Send message
      */
@@ -471,16 +576,14 @@ async function handleSendMessage() {
      */
     setInput("");
 
-    try {
-
-        /*
-         * =====================================================
-         * CREATE TEMPORARY ASSISTANT MESSAGE
-         * =====================================================
-         */
-
+    
         const assistantId =
             `temp-assistant-${Date.now()}`;
+
+    try {
+
+       
+
 
         setMessages((previous) => [
             ...previous,
@@ -1006,17 +1109,61 @@ async function handleRegenerate(messageId) {
 
     </div>
 
-    <div className="sidebar-footer">
+<div className="sidebar-footer">
 
-        <div className="bot-name">
-            🤖 AI Chatbot
+    {user ? (
+
+        <div className="user-profile">
+
+            {user.picture ? (
+                <img
+                    src={user.picture}
+                    alt="Profile"
+                    className="user-avatar"
+                />
+            ) : (
+                <div className="user-avatar-placeholder">
+                    {user.name?.charAt(0)?.toUpperCase()}
+                </div>
+            )}
+
+            <div className="user-info">
+
+                <div className="user-name">
+                    {user.name}
+                </div>
+
+                <div className="user-email">
+                    {user.email}
+                </div>
+
+            </div>
+
+            <button
+                type="button"
+                className="logout-button"
+                onClick={handleLogout}
+                title="Logout"
+            >
+                ↪
+            </button>
+
         </div>
 
-        <div className="bot-description">
-            Spring AI + Ollama
-        </div>
+    ) : (
 
-    </div>
+        <button
+            type="button"
+            onClick={handleGoogleLogin}
+            className="google-login-button"
+        >
+            <FcGoogle className="google-icon" />
+            Continue with Google
+        </button>
+
+    )}
+
+</div>
 
 </aside>
 
@@ -1028,6 +1175,8 @@ async function handleRegenerate(messageId) {
 
                 <header className="chat-header">
 
+                 <div>
+
                     <h1>
                         AI Chatbot
                     </h1>
@@ -1037,6 +1186,9 @@ async function handleRegenerate(messageId) {
                             ? "Conversation"
                             : "New conversation"}
                     </p>
+
+                 </div> 
+                 
 
                 </header>
 
@@ -1316,6 +1468,8 @@ async function handleRegenerate(messageId) {
         </div>
     );
 }
+
+
 
 /*
  * Format conversation date
